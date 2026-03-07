@@ -1,5 +1,7 @@
+import { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Download, RotateCcw } from "lucide-react";
+import BackgroundPicker from "./BackgroundPicker";
 
 interface ResultPreviewProps {
   originalUrl: string;
@@ -8,12 +10,58 @@ interface ResultPreviewProps {
 }
 
 const ResultPreview = ({ originalUrl, resultUrl, onReset }: ResultPreviewProps) => {
-  const handleDownload = () => {
+  const [customBg, setCustomBg] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const getCompositeUrl = useCallback((): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!customBg) {
+        resolve(resultUrl);
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d")!;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        // Draw background
+        if (customBg.startsWith("blob:") || customBg.startsWith("data:")) {
+          const bgImg = new Image();
+          bgImg.crossOrigin = "anonymous";
+          bgImg.onload = () => {
+            ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL("image/png"));
+          };
+          bgImg.src = customBg;
+        } else {
+          ctx.fillStyle = customBg;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        }
+      };
+      img.src = resultUrl;
+    });
+  }, [customBg, resultUrl]);
+
+  const handleDownload = async () => {
+    const url = await getCompositeUrl();
     const a = document.createElement("a");
-    a.href = resultUrl;
+    a.href = url;
     a.download = "background-removed.png";
     a.click();
   };
+
+  const resultBgStyle: React.CSSProperties = customBg
+    ? customBg.startsWith("blob:") || customBg.startsWith("data:")
+      ? { backgroundImage: `url(${customBg})`, backgroundSize: "cover", backgroundPosition: "center" }
+      : { backgroundColor: customBg }
+    : {};
 
   return (
     <motion.div
@@ -30,11 +78,18 @@ const ResultPreview = ({ originalUrl, resultUrl, onReset }: ResultPreviewProps) 
           </div>
         </div>
         <div className="glass-card p-4">
-          <p className="text-muted-foreground text-sm font-mono mb-3">Background Removed</p>
-          <div className="rounded-xl overflow-hidden checkerboard">
+          <p className="text-muted-foreground text-sm font-mono mb-3">Result</p>
+          <div
+            className={`rounded-xl overflow-hidden ${!customBg ? "checkerboard" : ""}`}
+            style={resultBgStyle}
+          >
             <img src={resultUrl} alt="Result" className="w-full h-auto object-contain max-h-80" />
           </div>
         </div>
+      </div>
+
+      <div className="mt-4">
+        <BackgroundPicker onBackgroundChange={setCustomBg} currentBg={customBg} />
       </div>
 
       <div className="flex items-center justify-center gap-3 mt-6">
@@ -50,6 +105,7 @@ const ResultPreview = ({ originalUrl, resultUrl, onReset }: ResultPreviewProps) 
           New Image
         </button>
       </div>
+      <canvas ref={canvasRef} className="hidden" />
     </motion.div>
   );
 };
